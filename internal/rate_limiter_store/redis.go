@@ -8,17 +8,19 @@ import (
 )
 
 type redis struct {
-    client radix.Client
+    client    radix.Client
+    scanCount int // Number of keys to scan in each iteration
 }
 
-func NewRedisStore(ctx context.Context, host string) (Store, error) {
+func NewRedisStore(ctx context.Context, host string, scanCount int) (Store, error) {
     poolConfig := radix.PoolConfig{}
     c, err := poolConfig.New(ctx, "tcp", host)
     if err != nil {
         return nil, fmt.Errorf("failed to create Redis pool: %w", err)
     }
     return &redis{
-        client: c,
+        client:    c,
+        scanCount: scanCount,
     }, nil
 }
 
@@ -35,16 +37,24 @@ func (r *redis) Get(ctx context.Context, key RateLimiterKey) (int32, error) {
         k     string
         count int32
     )
+    found := make(map[string]struct{})
     // Use a scanner to get all fields and values for the user at the given endpoint
     s := (radix.ScannerConfig{
         Pattern: generateKeyMatcher(key),
+        Count:   r.scanCount,
+        Type:    "string",
     }).New(r.client)
     for s.Next(ctx, &k) {
+        if _, exists := found[k]; exists {
+            // If the key has already been processed, skip it
+            continue
+        }
         var c int32
         if err := r.client.Do(ctx, radix.FlatCmd(&c, "GET", k)); err != nil {
             return 0, fmt.Errorf("failed to fetch rate limiter %s: %w", k, err)
         }
         count += c
+        found[k] = struct{}{} // Mark this key as processed
     }
     return count, nil
 }

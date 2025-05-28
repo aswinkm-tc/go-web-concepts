@@ -16,7 +16,7 @@ func main() {
     ctx := context.Background()
 
     // Create a Redis store for each endpoint with a TTL of 1 minute
-    store, err := ratelimiterstore.NewRedisStore(ctx, "localhost:6379")
+    store, err := ratelimiterstore.NewRedisStore(ctx, "localhost:6379", 100) // 100 keys per scan
     if err != nil {
         panic(err)
     }
